@@ -1,7 +1,7 @@
-# Barrage
+﻿# Barrage
 安卓弹幕
 
-![Image text](https://github.com/ChasingWord/Barrage/blob/master/Barrage/screenshots/1.png)
+![Image text](https://raw.githubusercontent.com/ChasingWord/Barrage/master/screenshots/1.png)
 
 使用:
 1、布局添加
