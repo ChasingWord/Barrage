@@ -3,10 +3,7 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent">
 
-    <com.example.barrage.barrage.BarrageLayout
-        android:id="@+id/bl"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent" />
+
 
     <Button
         android:id="@+id/btn_start"
@@ -44,5 +41,17 @@
         android:layout_alignParentBottom="true"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content" />
+
+    <EditText
+        android:id="@+id/et_input"
+        android:layout_above="@id/seekbar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content" />
+
+    <com.example.barrage.barrage.BarrageLayout
+        android:id="@+id/bl"
+        android:layout_above="@id/et_input"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
 
 </RelativeLayout>

@@ -4,6 +4,7 @@ import android.support.v7.app.AppCompatActivity;
 import android.os.Bundle;
 import android.view.View;
 import android.widget.Button;
+import android.widget.EditText;
 import android.widget.SeekBar;
 
 import com.example.barrage.barrage.Barrage;
@@ -16,6 +17,7 @@ public class MainActivity extends AppCompatActivity {
     private BarrageLayout mBl;
     private Button mBtnStart, mBtnPause, mBtnResume, mBtnAdd;
     private SeekBar mSeekBar;
+    private EditText mEtInput;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -27,6 +29,7 @@ public class MainActivity extends AppCompatActivity {
         mBtnResume = (Button) findViewById(R.id.btn_resume);
         mSeekBar = (SeekBar) findViewById(R.id.seekbar);
         mBtnAdd = (Button) findViewById(R.id.btn_add);
+        mEtInput = (EditText) findViewById(R.id.et_input);
 
         initView();
         mBtnStart.setOnClickListener(new View.OnClickListener() {
@@ -50,8 +53,9 @@ public class MainActivity extends AppCompatActivity {
         mBtnAdd.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
+                String s = mEtInput.getText().toString();
                 Barrage barrage = new Barrage();
-                barrage.setMsg("new added");
+                barrage.setMsg(s);
                 barrage.setTime(mBl.getCurrentTime());
                 mBl.addBarrage(barrage);
             }
