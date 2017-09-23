@@ -10,6 +10,8 @@ import android.os.Message;
 import android.support.v4.content.ContextCompat;
 import android.util.AttributeSet;
 import android.util.Log;
+import android.util.SparseBooleanArray;
+import android.util.SparseIntArray;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
@@ -19,8 +21,11 @@ import android.widget.TextView;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
+import java.util.Map;
+import java.util.Random;
 import java.util.Timer;
 import java.util.TimerTask;
+import java.util.TreeMap;
 
 /**
  * Created by chasing on 2017/9/20.
@@ -30,74 +35,87 @@ import java.util.TimerTask;
 public class BarrageLayout extends ViewGroup {
     private static final String LOG_INFO = "TEST_BARRAGE_LAYOUT";
     private static final int HANDLER_START_NEXT_ANIMATOR = 1;
+    private static final int HANDLER_CLEAR_ANIMATOR = 2;
+    public static final int HANDLER_START_ANIMATOR = 3;
+
     private static final int TEXT_VIEW_HEIGHT = 200;//每条弹幕高度
+
     private ArrayList<Barrage> mAllBarrages;//所有弹幕
-    private int mRowCount = 3;//弹幕行数
-    private long mTotalTime, mCurrentTime = 0;//单位：s
+    private int mRowCount;//弹幕行数
+    private long mTotalTime, mCurrentTime = 0;//时间单位：s
     private Timer mTimer;//当前时间计时器
     private TimerTask mDealCurrentTime;//当前时间计时任务
     private HashMap<Integer, Animator> mAllScrollAnim;//所有正在执行的动画
-    private boolean isStart = false;
+    private boolean isOpen = true;//是否开启弹幕
+    private boolean isStart = false;//是否已经开始播放弹幕
     private boolean mPause = true;//是否暂停
     private boolean mCancel = false;//是否取消滚动
+    private SparseBooleanArray mRowIsShowing;//记录每一行是否有弹幕刚刚出现（即正在显示但刚开始显示，未显示完整的）
+    private TreeMap<Integer, Barrage> mAddedBarrage;//用户刚刚评论添加的弹幕
+    private SparseIntArray mInterruptedBarrage;//由于新添加的弹幕中断了原来的顺序，记录中断位置
+    private SparseIntArray mRowShowingIndex;//记录每一行正在显示的弹幕的索引
 
-    public BarrageLayout(Context context) {
-        super(context);
-        init();
-    }
+    private boolean isMeasure;
+    private boolean isLayout;
+
+    private int mWidthMeasureSpec, mHeightMeasureSpec;
+    private PauseThread mPauseThread;
 
     public BarrageLayout(Context context, AttributeSet attrs) {
         super(context, attrs);
         init();
     }
 
-    public BarrageLayout(Context context, AttributeSet attrs, int defStyleAttr) {
-        super(context, attrs, defStyleAttr);
-        init();
-    }
-
     private void init() {
         mAllBarrages = new ArrayList<>();
         mAllScrollAnim = new HashMap<>();
+        mAddedBarrage = new TreeMap<>();
+        mInterruptedBarrage = new SparseIntArray();
+        mRowIsShowing = new SparseBooleanArray();
+        mRowShowingIndex = new SparseIntArray();
+        mPauseThread = new PauseThread(mHandler);
+        mPauseThread.start();
     }
 
     @Override
     protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
         super.onMeasure(widthMeasureSpec, heightMeasureSpec);
-        for (int index = 0; index < getChildCount(); index++) {
-            View v = getChildAt(index);
-            //测量子View的宽和高
-            measureChild(v, widthMeasureSpec, heightMeasureSpec);
+        if (!isMeasure) { //不需要一直对子View进行重测
+            isMeasure = true;
+            mWidthMeasureSpec = widthMeasureSpec;
+            mHeightMeasureSpec = heightMeasureSpec;
+            for (int index = 0; index < getChildCount(); index++) {
+                View v = getChildAt(index);
+                //测量子View的宽和高
+                measureChild(v, widthMeasureSpec, heightMeasureSpec);
+            }
         }
     }
 
     @Override
     protected void onLayout(boolean b, int i, int i1, int i2, int i3) {
-        int rowCount = getRowCount();
-        if (rowCount == 0) {
+        if (!isLayout) {
+            isLayout = true;
+            mRowCount = getMeasuredHeight() / TEXT_VIEW_HEIGHT;
+            for (int row = 0; row < mRowCount; row++) {
+                mRowShowingIndex.put(row, -1);
+            }
+        }
+        if (mRowCount == 0) {
             throw new RuntimeException("BarrageLayout's Height is not enough height for barrage.Please reset BarrageLayout's Height.");
         }
         for (int index = 0; index < getChildCount(); index++) {
             View v = getChildAt(index);
-            if (index % rowCount == 0) {
-                v.layout(0, 0, v.getMeasuredWidth(), v.getMeasuredHeight());
-            } else if (index % rowCount == 1) {
-                v.layout(0, v.getMeasuredHeight(), v.getMeasuredWidth(), v.getMeasuredHeight() * 2);
-            } else {
-                v.layout(0, v.getMeasuredHeight() * 2, v.getMeasuredWidth(), v.getMeasuredHeight() * 3);
-            }
+            v.layout(0, v.getMeasuredHeight() * (index % mRowCount),
+                    v.getMeasuredWidth(), v.getMeasuredHeight() * ((index % mRowCount) + 1));
         }
     }
 
     /**
-     * 根据高度获取能显示的弹幕行数
+     * 是否开启弹幕
      */
-    private int getRowCount() {
-        if (mRowCount * TEXT_VIEW_HEIGHT > getMeasuredHeight()) {
-            mRowCount--;
-            getRowCount();
-        }
-        return mRowCount;
+    public void setOpen(boolean isOpen) {
+        this.isOpen = isOpen;
     }
 
     /**
@@ -107,6 +125,21 @@ public class BarrageLayout extends ViewGroup {
         mAllBarrages.clear();
         mAllBarrages.addAll(data);
         initViews();
+    }
+
+    /**
+     * 添加单条弹幕
+     */
+    public void addBarrage(Barrage barrage) {
+        TextView textView = addBarrageView(barrage, mAllBarrages.size());
+        measureChild(textView, mWidthMeasureSpec, mHeightMeasureSpec);//测量宽高
+        mAddedBarrage.put(mAllBarrages.size(), barrage);
+        mAllBarrages.add(barrage);
+        int thisIndex = mAllBarrages.size() - 1;
+        if (!mRowIsShowing.get(thisIndex % mRowCount)) {
+            //如果没有同行没有数据在显示，则发送信息通知对添加的弹幕进行显示
+            sendAnimatorMessage(thisIndex, 0);
+        }
     }
 
     /**
@@ -120,21 +153,31 @@ public class BarrageLayout extends ViewGroup {
      * 初始化每条弹幕
      */
     private void initViews() {
-        int mTotalChildCount = mAllBarrages.size();
-        for (int i = 0; i < mTotalChildCount; i++) {
+        int totalCount = mAllBarrages.size();
+        for (int i = 0; i < totalCount; i++) {
             Barrage barrage = mAllBarrages.get(i);
-            TextView textView = new TextView(getContext());
-            LayoutParams lp = new LayoutParams(LayoutParams.WRAP_CONTENT, TEXT_VIEW_HEIGHT);
-            textView.setLayoutParams(lp);
-            textView.setGravity(Gravity.CENTER);
-            String msg = barrage.getMsg();
-            msg = '\t' + msg + '\t';
-            textView.setText(msg);
-            textView.setVisibility(View.GONE);
-            textView.setTag(i);
-            textView.setTextColor(ContextCompat.getColor(getContext(), barrage.getTextColorResId()));
-            addView(textView);
+            addBarrageView(barrage, i);
         }
+    }
+
+    /**
+     * 添加单条弹幕view
+     *
+     * @param tag 为弹幕添加索引标记
+     */
+    private TextView addBarrageView(Barrage barrage, int tag) {
+        TextView textView = new TextView(getContext());
+        LayoutParams lp = new LayoutParams(LayoutParams.WRAP_CONTENT, TEXT_VIEW_HEIGHT);
+        textView.setLayoutParams(lp);
+        textView.setGravity(Gravity.CENTER);
+        String msg = barrage.getMsg();
+        msg = '\t' + msg + '\t';
+        textView.setText(msg);
+        textView.setTag(tag);
+        textView.setTextColor(ContextCompat.getColor(getContext(), barrage.getTextColorResId()));
+        textView.setVisibility(View.GONE);
+        addView(textView);
+        return textView;
     }
 
     /**
@@ -146,15 +189,17 @@ public class BarrageLayout extends ViewGroup {
         startFirstBarrage(0);
 
         mPause = false;
+        mPauseThread.setPause(false);
         if (mTimer == null) {
             mTimer = new Timer();
             mDealCurrentTime = new TimerTask() {
                 @Override
                 public void run() {
+                    //计时
                     if (mPause) return;
                     mCurrentTime += 1;
                     if (mCurrentTime > mTotalTime) {
-                        clear();
+                        mHandler.sendEmptyMessage(HANDLER_CLEAR_ANIMATOR);//timer线程不能更新UI，通过handler调用
                     }
                 }
             };
@@ -164,8 +209,11 @@ public class BarrageLayout extends ViewGroup {
 
     /**
      * 设置当前时间（进度条移动后重新设置当前时间）
+     * 取消正在显示的弹幕，重新按照当前时间显示每一行的第一条弹幕
      */
     public void setCurrentTime(long currentTime) {
+        mPause = false;
+        mPauseThread.setPause(false);
         cancelAnim();
         mCurrentTime = currentTime;
         for (int i = 0; i < mAllBarrages.size(); i++) {
@@ -174,6 +222,10 @@ public class BarrageLayout extends ViewGroup {
                 break;
             }
         }
+    }
+
+    public long getCurrentTime() {
+        return mCurrentTime;
     }
 
     /**
@@ -186,8 +238,9 @@ public class BarrageLayout extends ViewGroup {
             if (getChildAt(i) != null) {
                 Barrage barrage = mAllBarrages.get(i);
                 long barrageTime = barrage.getTime();
-                if (barrageTime >= mCurrentTime && barrageTime <= mCurrentTime + 5) {
-                    setAnimationParent2Self(getChildAt(i));
+                if (barrageTime >= mCurrentTime - 1 && barrageTime <= mCurrentTime + 1) {
+//                    setAnimationParent2Self(i);
+                    mPauseThread.push(i);
                 } else {
                     int duration = (int) (barrageTime - mCurrentTime) * 1000;//设置开始滚动的时间
                     sendAnimatorMessage(i, duration);
@@ -200,6 +253,7 @@ public class BarrageLayout extends ViewGroup {
     public void pause() {
         if (mPause) return;
         mPause = true;
+        mPauseThread.setPause(true);
         Collection<Animator> values = mAllScrollAnim.values();
         for (Animator anim : values) {
             anim.pause();
@@ -210,6 +264,7 @@ public class BarrageLayout extends ViewGroup {
     public void resume() {
         if (!mPause) return;
         mPause = false;
+        mPauseThread.setPause(false);
         Collection<Animator> values = mAllScrollAnim.values();
         for (Animator anim : values) {
             anim.resume();
@@ -221,6 +276,7 @@ public class BarrageLayout extends ViewGroup {
      */
     public void destroy() {
         clear();
+        mPauseThread.setDestroy(true);
         mHandler = null;
     }
 
@@ -233,6 +289,10 @@ public class BarrageLayout extends ViewGroup {
         for (Animator anim : values) {
             anim.cancel();
         }
+        mRowIsShowing.clear();
+        mAddedBarrage.clear();
+        mInterruptedBarrage.clear();
+        mRowShowingIndex.clear();
         mAllScrollAnim.clear();
         mHandler.removeMessages(HANDLER_START_NEXT_ANIMATOR);
         mCancel = false;
@@ -250,6 +310,7 @@ public class BarrageLayout extends ViewGroup {
         isStart = false;
     }
 
+    private final Object clock = new Object();
     /**
      * 接收延迟弹幕滚动，达到指定时间内显示滚动
      * 自定义弹幕显示时间段（当前时间-1 <= 弹幕时间 <= 当前时间+1）的时候进行显示
@@ -258,28 +319,67 @@ public class BarrageLayout extends ViewGroup {
         @Override
         public void handleMessage(Message msg) {
             switch (msg.what) {
-                case HANDLER_START_NEXT_ANIMATOR:
-                    int nextIndex = msg.arg1;
-                    View nextView = getChildAt(nextIndex);
-                    if (nextView != null) {
-                        long barrageTime = mAllBarrages.get(nextIndex).getTime();
-                        if (barrageTime >= mCurrentTime - 1 && barrageTime <= mCurrentTime + 1) {//弹幕时间正好符合当前时间
-                            if (mPause) {
-                                sendAnimatorMessage(nextIndex, (int) (barrageTime - mCurrentTime));
-                            } else {
-                                setAnimationParent2Self(nextView);
+                case HANDLER_START_NEXT_ANIMATOR://通知下一条弹幕进行滚动
+                    synchronized (clock) {
+                        int rowPoi = (int) msg.obj;
+                        removeMessages(HANDLER_START_NEXT_ANIMATOR, rowPoi);//移除同一行的其它弹幕
+                        int nextIndex = msg.arg1;
+                        mRowIsShowing.put(nextIndex % mRowCount, false);
+
+                        if (!mAddedBarrage.isEmpty()) {
+                            boolean hadAdded = false;
+                            //当有用户新添加的评论时，显示刚刚添加的弹幕
+                            for (Map.Entry<Integer, Barrage> entry : mAddedBarrage.entrySet()) {
+                                int index = entry.getKey();
+                                if (index % mRowCount == nextIndex % mRowCount) {
+                                    int trueNextIndex = mRowShowingIndex.get(nextIndex % mRowCount);
+                                    if (trueNextIndex != -1) {//添加弹幕之前该行已经有弹幕滚动过，则中断位置为上次的弹幕索引
+                                        trueNextIndex += mRowCount;
+                                        //如果中断的index和新添加的index一样，说明是连续添加了mRowCount+1次弹幕，则不进行中断标记
+                                        //如果小于当前时间，证明添加新弹幕的时候并没有弹幕在显示，则不进行中断标记
+                                        if (trueNextIndex < mAllBarrages.size() && trueNextIndex != index) {
+                                            mInterruptedBarrage.put(nextIndex % mRowCount, trueNextIndex);//添加原本的弹幕为中断弹幕，以进行恢复
+                                        }
+                                    } else {//添加弹幕之前该行没有弹幕滚动过，则中断位置为每行的首个索引
+                                        mInterruptedBarrage.put(nextIndex % mRowCount, index % mRowCount);//添加原本的弹幕为中断弹幕，以进行恢复
+                                    }
+                                    mAddedBarrage.remove(index);
+                                    mPauseThread.push(index);
+                                    hadAdded = true;
+                                    break;
+                                }
                             }
-                        } else if (barrageTime > mCurrentTime + 1) {//当前时间未到达弹幕时间
-                            int duration = (int) (barrageTime - mCurrentTime) * 1000;
-                            sendAnimatorMessage(nextIndex, duration);
-                            Log.e(LOG_INFO, duration + " ");
-                        } else if (barrageTime < mCurrentTime - 1) {//弹幕数量太多，导致弹幕时间到时当前时间已经远超过弹幕时间
-                            Log.e(LOG_INFO, "Message is too mach to show.");
-                            int doubleNextIndex = (int) nextView.getTag() + mRowCount;
-                            int duration = getDuration(nextView.getMeasuredWidth());
-                            sendAnimatorMessage(doubleNextIndex, duration);
+                            if (hadAdded) break;
+                        }
+
+                        View nextView = getChildAt(nextIndex);
+                        if (nextView != null) {
+                            long barrageTime = mAllBarrages.get(nextIndex).getTime();
+                            if (barrageTime >= mCurrentTime - 1 && barrageTime <= mCurrentTime + 1) {
+                                //弹幕时间正好符合当前时间
+                                mPauseThread.push(nextIndex);
+                            } else if (barrageTime > mCurrentTime + 1) {
+                                //当前时间未到达弹幕时间
+                                int duration = (int) (barrageTime - mCurrentTime) * 1000;
+                                sendAnimatorMessage(nextIndex, duration);
+//                            Log.e(LOG_INFO, duration + " ");
+                            } else if (barrageTime < mCurrentTime - 1) {
+                                //弹幕数量太多，导致弹幕时间到时当前时间已经远超过弹幕时间，则立即显示同行后面一条
+                                Log.e(LOG_INFO, "Message's time is out of date.");
+                                int doubleNextIndex = (int) nextView.getTag() + mRowCount;
+                                sendAnimatorMessage(doubleNextIndex, 0);
+                            }
                         }
                     }
+                    break;
+
+                case HANDLER_CLEAR_ANIMATOR://清楚弹幕
+                    clear();
+                    break;
+
+                case HANDLER_START_ANIMATOR://开始下一条弹幕的滚动
+                    int index = msg.arg1;
+                    setAnimationParent2Self(index);
                     break;
             }
         }
@@ -295,6 +395,7 @@ public class BarrageLayout extends ViewGroup {
         if (mHandler == null) return;
         Message msg = mHandler.obtainMessage();
         msg.what = HANDLER_START_NEXT_ANIMATOR;
+        msg.obj = index % mRowCount;//设置行位置
         msg.arg1 = index;//设置同一行的弹幕索引
         mHandler.sendMessageDelayed(msg, duration);
     }
@@ -302,10 +403,41 @@ public class BarrageLayout extends ViewGroup {
     /**
      * 设置TextView（弹幕）的滚动动画
      */
-    public void setAnimationParent2Self(final View view) {
+    public void setAnimationParent2Self(final int index) {
+        if (mPause) {
+            //如果处于暂停状态则重新放入分配线程
+            mPauseThread.push(index);
+            return;
+        }
+
+        //判断上一个显示的弹幕是否已经显示完整
+        int showingIndex = mRowShowingIndex.get(index % mRowCount);
+        View showingView = getChildAt(showingIndex);
+        if (showingView != null) {
+            float exceedWidth = showingView.getMeasuredWidth() + showingView.getTranslationX() - getMeasuredWidth();
+            if (exceedWidth > 0) {//上一条弹幕未显示完整，还有exceedWidth的宽度未显示
+                sendAnimatorMessage(index, getDuration(index, (int) exceedWidth));
+                return;
+            }
+        }
+
+        /*
+        当pause的时候，handler.sendMessageDelay的延迟时间还是会继续计算
+        所以当点击resume的时候，delay的弹幕就会立即显示出来
+        所以添加以下判断：
+         */
+        long barrageTime = mAllBarrages.get(index).getTime();
+        if (barrageTime >= mCurrentTime + 1) {
+            //当前时间未到达弹幕时间
+            int duration = (int) (barrageTime - mCurrentTime) * 1000;
+            sendAnimatorMessage(index, duration);
+            return;
+        }
+
+        final View view = getChildAt(index);
         ObjectAnimator translateParent2Self = ObjectAnimator.ofFloat(view, "translationX",
                 getMeasuredWidth(), -view.getMeasuredWidth());
-        translateParent2Self.setDuration(getDuration(getMeasuredWidth() + view.getMeasuredWidth()));
+        translateParent2Self.setDuration(getDuration(index, getMeasuredWidth() + view.getMeasuredWidth()));
         translateParent2Self.setRepeatCount(0);
         translateParent2Self.setInterpolator(new LinearInterpolator());
         translateParent2Self.addListener(new Animator.AnimatorListener() {
@@ -314,12 +446,36 @@ public class BarrageLayout extends ViewGroup {
                 if (mCancel) {
                     animator.cancel();
                 } else {
-                    view.setVisibility(View.VISIBLE);
-                    int nextIndex = (int) view.getTag() + mRowCount;//设置同一行的弹幕索引
-                    int duration = getDuration(view.getMeasuredWidth());//设置开始滚动的时间
+                    if (isOpen) {
+                        view.setVisibility(View.VISIBLE);
+                    }
+                    //动画开始（即滚动开始）的时候，计算自身需要duration时长才能显示完整，则延迟duration时长后显示下一条弹幕
+                    int curIndex = (int) view.getTag();
+//                    Log.e(LOG_INFO, curIndex + "    cur");
+                    mAllScrollAnim.put(curIndex, animator);
+                    mRowIsShowing.put(curIndex % mRowCount, true);
+                    int nextIndex = curIndex + mRowCount;//设置同一行的弹幕索引
+                    int duration = getDuration(index, view.getMeasuredWidth());//设置开始滚动的时间
+
+                    //显示新添加的弹幕时不更新正在显示的索引，保持被中断时的索引，方便之后的弹幕重新从中断位置开始
+                    if (mInterruptedBarrage.size() != 0) {
+                        int interruptedIndex = mInterruptedBarrage.get(curIndex % mRowCount, -1);
+                        if (interruptedIndex != -1) {
+                            //如果同行被中断过，则返回中断点继续进行滚动
+                            mInterruptedBarrage.delete(curIndex % mRowCount);
+                            if (interruptedIndex != curIndex) {
+                                nextIndex = interruptedIndex;
+                            }
+                        } else {
+                            mRowShowingIndex.put(curIndex % mRowCount, curIndex);
+                        }
+                    } else {
+                        mRowShowingIndex.put(curIndex % mRowCount, curIndex);
+                    }
+//                    Log.e(LOG_INFO, nextIndex + "    next");
+
                     sendAnimatorMessage(nextIndex, duration);
-                    Log.e(LOG_INFO, duration + " start to next");
-                    mAllScrollAnim.put((int) view.getTag(), animator);
+//                    Log.e(LOG_INFO, duration + " start to next");
                 }
             }
 
@@ -346,10 +502,21 @@ public class BarrageLayout extends ViewGroup {
         translateParent2Self.start();
     }
 
+    private int[] mSpeedArray;
+
     /**
-     * 根据长度获取滚动时间
+     * 根据行数索引及长度获取滚动时间
+     * 每一行的速度一致，避免追尾
      */
-    private int getDuration(int width) {
-        return width * 1000 / 250;  //转成毫秒
+    private int getDuration(int index, int width) {
+        if (mSpeedArray == null) {
+            mSpeedArray = new int[mRowCount];
+            Random random = new Random(48);
+            for (int i = 0; i < mRowCount; i++) {
+                mSpeedArray[i] = random.nextInt(200) + 250;
+            }
+        }
+        int speed = mSpeedArray[index % mRowCount];
+        return width * 1000 / speed;  //转成毫秒
     }
 }

@@ -37,4 +37,12 @@
         android:layout_height="wrap_content"
         android:layout_above="@id/btn_start" />
 
+    <Button
+        android:id="@+id/btn_add"
+        android:text="add"
+        android:layout_toRightOf="@id/btn_resume"
+        android:layout_alignParentBottom="true"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content" />
+
 </RelativeLayout>

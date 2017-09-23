@@ -14,7 +14,7 @@ import java.util.Random;
 
 public class MainActivity extends AppCompatActivity {
     private BarrageLayout mBl;
-    private Button mBtnStart, mBtnPause, mBtnResume;
+    private Button mBtnStart, mBtnPause, mBtnResume, mBtnAdd;
     private SeekBar mSeekBar;
 
     @Override
@@ -26,6 +26,7 @@ public class MainActivity extends AppCompatActivity {
         mBtnPause = (Button) findViewById(R.id.btn_pause);
         mBtnResume = (Button) findViewById(R.id.btn_resume);
         mSeekBar = (SeekBar) findViewById(R.id.seekbar);
+        mBtnAdd = (Button) findViewById(R.id.btn_add);
 
         initView();
         mBtnStart.setOnClickListener(new View.OnClickListener() {
@@ -44,6 +45,15 @@ public class MainActivity extends AppCompatActivity {
             @Override
             public void onClick(View view) {
                 mBl.resume();
+            }
+        });
+        mBtnAdd.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                Barrage barrage = new Barrage();
+                barrage.setMsg("new added");
+                barrage.setTime(mBl.getCurrentTime());
+                mBl.addBarrage(barrage);
             }
         });
     }
@@ -72,8 +82,8 @@ public class MainActivity extends AppCompatActivity {
             all.add(barrage1);
         }
         mBl.setData(all);
-        mBl.setTotalTime(all.get(all.size() - 1).getTime());
-        mSeekBar.setMax((int) all.get(all.size() - 1).getTime());
+        mBl.setTotalTime(all.get(all.size() - 1).getTime() + 200);
+        mSeekBar.setMax((int) all.get(all.size() - 1).getTime() + 200);
         mSeekBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
             @Override
             public void onProgressChanged(SeekBar seekBar, int i, boolean b) {
