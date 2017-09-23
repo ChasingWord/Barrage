@@ -1,7 +1,9 @@
 # Barrage
 安卓弹幕
 
-使用：
+![Image text](https://github.com/ChasingWord/Barrage/blob/master/Barrage/screenshots/1.png)
+
+使用:
 1、布局添加
     <com.example.barrage.barrage.BarrageLayout
         android:id="@+id/bl"
