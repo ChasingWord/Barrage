@@ -24,3 +24,11 @@
  
 4、进度更新时重新设置当前时间
     mBarrageLayout.setCurrentTime(int progress);
+
+设置行高、字体大小：
+xmlns:barrage="http://schemas.android.com/apk/res-auto"
+barrage:textSize="15sp"
+barrage:lineHeight="32dp"
+
+字体颜色在Barrage类进行设置：
+barrage.setTextColorResId(int resId);
