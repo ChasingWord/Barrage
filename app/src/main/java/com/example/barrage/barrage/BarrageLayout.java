@@ -9,6 +9,7 @@ import android.os.Build;
 import android.os.Handler;
 import android.os.Message;
 import android.support.v4.content.ContextCompat;
+import android.text.TextUtils;
 import android.util.AttributeSet;
 import android.util.Log;
 import android.util.SparseBooleanArray;
@@ -142,6 +143,7 @@ public class BarrageLayout extends ViewGroup {
      * 添加单条弹幕
      */
     public void addBarrage(Barrage barrage) {
+        if (TextUtils.isEmpty(barrage.getMsg())) return;
         TextView textView = addBarrageView(barrage, mAllBarrages.size());
         measureChild(textView, mWidthMeasureSpec, mHeightMeasureSpec);//测量宽高
         mAddedBarrage.put(mAllBarrages.size(), barrage);
@@ -184,7 +186,7 @@ public class BarrageLayout extends ViewGroup {
         String msg = barrage.getMsg();
         msg = '\t' + msg + '\t';
         textView.setText(msg);
-        textView.setTextSize(TypedValue.COMPLEX_UNIT_PX,mTextSize);
+        textView.setTextSize(TypedValue.COMPLEX_UNIT_PX, mTextSize);
         textView.setTag(tag);
         textView.setTextColor(ContextCompat.getColor(getContext(), barrage.getTextColorResId()));
         textView.setVisibility(View.GONE);
@@ -351,9 +353,11 @@ public class BarrageLayout extends ViewGroup {
                                         //如果小于当前时间，证明添加新弹幕的时候并没有弹幕在显示，则不进行中断标记
                                         if (trueNextIndex < mAllBarrages.size() && trueNextIndex != index) {
                                             mInterruptedBarrage.put(nextIndex % mRowCount, trueNextIndex);//添加原本的弹幕为中断弹幕，以进行恢复
+                                            mPauseThread.remove(trueNextIndex);
                                         }
                                     } else {//添加弹幕之前该行没有弹幕滚动过，则中断位置为每行的首个索引
                                         mInterruptedBarrage.put(nextIndex % mRowCount, index % mRowCount);//添加原本的弹幕为中断弹幕，以进行恢复
+                                        mPauseThread.remove(index % mRowCount);
                                     }
                                     mAddedBarrage.remove(index);
                                     mPauseThread.push(index);

@@ -50,8 +50,7 @@
     <com.example.barrage.barrage.BarrageLayout
         android:id="@+id/bl"
         android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:layout_above="@id/et_input"
+        android:layout_height="200dp"
         barrage:textSize="15sp"
         barrage:lineHeight="32dp" />
 

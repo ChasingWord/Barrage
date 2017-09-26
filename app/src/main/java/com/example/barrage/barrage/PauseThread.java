@@ -32,6 +32,19 @@ public class PauseThread extends Thread{
         mQueue.put(index);
     }
 
+    /**
+     * 移除显示index的弹幕
+     * 调用情况：
+     *      添加新的弹幕的时候，需要移除即将显示的弹幕，优先显示新添加的弹幕
+     * 可能造成：
+     *      被延迟的弹幕可能超出时间没办法显示（小于当前时间-1s）
+     *
+     * @param index 将要显示的弹幕的索引
+     */
+    public void remove(int index){
+        mQueue.remove(index);
+    }
+
     @Override
     public void run() {
         while (!isDestroy){
